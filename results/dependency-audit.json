@@ -1,0 +1,25 @@
+{
+  "imports": [
+    "argparse",
+    "base_models",
+    "csv",
+    "gc",
+    "hashlib",
+    "implementations",
+    "importlib",
+    "json",
+    "numpy",
+    "numpy_boost",
+    "pathlib",
+    "pipeline",
+    "platform",
+    "tempfile",
+    "time",
+    "unittest",
+    "warnings"
+  ],
+  "nonstandard_dependencies": [
+    "numpy"
+  ],
+  "numpy_only": true
+}

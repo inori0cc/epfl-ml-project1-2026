@@ -1,0 +1,7 @@
+...........................                                              [100%]
+=============================== warnings summary ===============================
+work/official_tests/test_project1_public.py::test_function_exists[mean_squared_error_gd]
+  <frozen importlib._bootstrap>:530: DeprecationWarning: the load_module() method is deprecated and slated for removal in Python 3.15; use exec_module() instead
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+27 passed, 1 deselected, 1 warning in 0.19s

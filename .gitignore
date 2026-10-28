@@ -1,0 +1,10 @@
+data/
+.venv/
+__pycache__/
+.pytest_cache/
+*.aux
+*.log
+*.out
+.DS_Store
+!results/*.log
+!optimization/results/*.log

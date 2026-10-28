@@ -1,0 +1,140 @@
+"""Team-provided six course algorithms.
+
+Source snapshot: provenance/teammate_implementations.py.txt.
+Integration changes: formatting and singular-normal-matrix fallback only.
+Required public function signatures and original helper functions are retained.
+"""
+
+import numpy as np
+
+
+def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):
+    """Linear regression using gradient descent"""
+    w = np.array(initial_w, dtype=float, copy=True)
+    for _ in range(max_iters):
+        gradient, _ = compute_gradient(y, tx, w)
+        w = w - gamma * gradient
+    return w, compute_loss(y, tx, w)
+
+
+def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
+    """Linear regression using stochastic gradient descent"""
+    w = np.array(initial_w, dtype=float, copy=True)
+    for batch_y, batch_tx in batch_iter(y, tx, batch_size=1, num_batches=max_iters):
+        gradient, _ = compute_gradient(batch_y, batch_tx, w)
+        w = w - gamma * gradient
+    return w, compute_loss(y, tx, w)
+
+
+def least_squares(y, tx):
+    """Least squares regression using normal equations"""
+    normal_matrix = tx.T @ tx
+    target = tx.T @ y
+    w = _solve_normal(normal_matrix, target)
+    return w, compute_loss(y, tx, w)
+
+
+def ridge_regression(y, tx, lambda_):
+    """Ridge regression using normal equations"""
+    penalty = 2 * len(y) * lambda_ * np.eye(tx.shape[1])
+    normal_matrix = tx.T @ tx + penalty
+    target = tx.T @ y
+    w = _solve_normal(normal_matrix, target)
+    return w, compute_loss(y, tx, w)
+
+
+def logistic_regression(y, tx, initial_w, max_iters, gamma):
+    """Logistic regression using gradient descent"""
+    w = np.array(initial_w, dtype=float, copy=True)
+    for _ in range(max_iters):
+        gradient = calculate_gradient(y, tx, w)
+        w = w - gamma * gradient
+    return w, calculate_loss(y, tx, w)
+
+
+def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
+    """Regularized logistic regression using gradient descent"""
+    w = np.array(initial_w, dtype=float, copy=True)
+    for _ in range(max_iters):
+        gradient = calculate_gradient(y, tx, w) + 2 * lambda_ * w
+        w = w - gamma * gradient
+    return w, calculate_loss(y, tx, w)
+
+
+def calculate_mse(e):
+    """Args: e (N,).
+    Returns: scalar MSE.
+    """
+    return np.mean(e**2) / 2
+
+
+def compute_loss(y, tx, w):
+    """Args: y (N,), tx (N, D), w (D,).
+    Returns: scalar MSE.
+    """
+    error = y - tx @ w
+    return calculate_mse(error)
+
+
+def compute_gradient(y, tx, w):
+    """Args: y (N,), tx (N, D), w (D,).
+    Returns: MSE gradient and residuals.
+    """
+    error = y - tx @ w
+    gradient = -(tx.T @ error) / len(y)
+    return gradient, error
+
+
+def batch_iter(y, tx, batch_size, num_batches=1, shuffle=True):
+    """Args: y (N,), tx (N, D), batch_size, num_batches, shuffle.
+    Returns: iterator of (batch_y, batch_tx).
+    """
+    data_size = len(y)
+    batch_size = min(data_size, batch_size)
+    batch_count = data_size // batch_size
+    leftover = data_size % batch_size
+    if shuffle:
+        starts = np.random.randint(batch_count, size=num_batches) * batch_size
+        if leftover:
+            starts += np.random.randint(leftover + 1, size=num_batches)
+    else:
+        starts = (np.arange(num_batches) % batch_count) * batch_size
+    for start in starts:
+        stop = start + batch_size
+        yield y[start:stop], tx[start:stop]
+
+
+def sigmoid(t):
+    """Args: t, logits.
+    Returns: sigmoid probabilities.
+    """
+    decay = np.exp(-np.abs(t))
+    return np.where(t >= 0, 1.0 / (1.0 + decay), decay / (1.0 + decay))
+
+
+def calculate_loss(y, tx, w):
+    """Args: y (N,), tx (N, D), w (D,).
+    Returns: scalar mean logistic loss.
+    """
+    logits = tx @ w
+    log_confidence = np.log(sigmoid(np.abs(logits)))
+    log_pred = np.minimum(logits, 0) + log_confidence
+    log_one_minus_pred = np.minimum(-logits, 0) + log_confidence
+    loss = y.T @ log_pred + (1 - y).T @ log_one_minus_pred
+    return -loss / len(y)
+
+
+def calculate_gradient(y, tx, w):
+    """Args: y (N,), tx (N, D), w (D,).
+    Returns: mean logistic gradient.
+    """
+    probabilities = sigmoid(tx @ w)
+    return tx.T @ (probabilities - y) / len(y)
+
+
+def _solve_normal(matrix, target):
+    """Solve normal equations; use a pseudoinverse when the matrix is singular."""
+    try:
+        return np.linalg.solve(matrix, target)
+    except np.linalg.LinAlgError:
+        return np.linalg.pinv(matrix) @ target

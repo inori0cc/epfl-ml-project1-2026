@@ -1,0 +1,266 @@
+"""Predeclared NumPy-only search. Tune selects; internal holdout only reports.
+
+Outputs live in optimization/, preserving the original models and submission.
+Resume candidate fitting only when source/data/config fingerprints all match.
+"""
+
+import argparse
+import gc
+import hashlib
+import json
+import time
+from pathlib import Path
+import numpy as np
+from numpy_boost import HistogramBoost
+from feature_views import FeatureView, rank_features
+from pipeline import (
+    load_features,
+    load_labels,
+    stratified_split,
+    best_threshold,
+    metrics,
+    sha256,
+    write_submission,
+)
+
+ROOT = Path(__file__).resolve().parent
+CONFIGS = [
+    ("bins64", "raw", dict(bins=64)),
+    ("bins128", "raw", dict(bins=128)),
+    ("depth4", "raw", dict(bins=64, depth=4)),
+    ("columns70", "raw", dict(bins=64, colsample=0.7)),
+    ("slow", "raw", dict(bins=64, learning_rate=0.05, rounds=450)),
+    ("top80", "top80", dict(bins=64, colsample=0.8)),
+    ("expanded80", "expanded80", dict(bins=64, colsample=0.5)),
+    ("top80depth4", "top80", dict(bins=64, colsample=0.8, depth=4)),
+]
+
+
+def load_cached_trial(record_path, model_path):
+    rec = json.loads(record_path.read_text())
+    if rec.get("model_sha256") != sha256(model_path):
+        raise ValueError(
+            "Cached model hash mismatch; rerun in a fresh output directory"
+        )
+    return rec, HistogramBoost.load(model_path)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--data-dir", type=Path, default=ROOT / "data")
+    ap.add_argument("--output-dir", type=Path, default=ROOT / "optimization")
+    args = ap.parse_args()
+    out = args.output_dir
+    (out / "models").mkdir(parents=True, exist_ok=True)
+    (out / "results").mkdir(exist_ok=True)
+    started = time.time()
+    ids, x, names = load_features(args.data_dir / "x_train.csv")
+    y = load_labels(args.data_dir / "y_train.csv", ids)
+    a, b, c = stratified_split(y, 2026)
+    ref_path = ROOT / "models/numpy_depth3.json"
+    reference = HistogramBoost.load(ref_path)
+    top = rank_features(reference.trees, len(names), 80)
+    views = {
+        "raw": FeatureView.fit(x[a], names),
+        "top80": FeatureView.fit(x[a], names, top),
+        "expanded80": FeatureView.fit(x[a], names, top, True),
+    }
+    datahash = {
+        n: sha256(args.data_dir / n)
+        for n in ["x_train.csv", "y_train.csv", "x_test.csv"]
+    }
+    prior = json.loads((ROOT / "models/metadata.json").read_text())
+    if prior["data_sha256"] != datahash:
+        raise ValueError("Reference model/data mismatch")
+    identity = dict(
+        data_sha256=datahash,
+        reference_sha256=sha256(ref_path),
+        configs=CONFIGS,
+        source={
+            n: sha256(ROOT / n)
+            for n in [
+                "numpy_boost.py",
+                "feature_views.py",
+                "pipeline.py",
+                "optimize.py",
+            ]
+        },
+    )
+    fingerprint = hashlib.sha256(
+        json.dumps(identity, sort_keys=True).encode()
+    ).hexdigest()
+    state_path = out / "results/search_identity.json"
+    if (
+        state_path.exists()
+        and json.loads(state_path.read_text())["fingerprint"] != fingerprint
+    ):
+        raise ValueError(
+            "Search inputs changed: archive optimization/ before starting a new search"
+        )
+    state_path.write_text(
+        json.dumps(dict(fingerprint=fingerprint, **identity), indent=2) + "\n"
+    )
+    for key, view in views.items():
+        (out / "models" / f"view_{key}.json").write_text(
+            json.dumps(view.to_dict()) + "\n"
+        )
+    np.savez_compressed(
+        out / "results/split_ids.npz", train=ids[a], tune=ids[b], holdout=ids[c]
+    )
+    predictions = {}
+    records = []
+    reference.save(out / "models/reference.json")
+    p = reference.predict(x[b])
+    t, f = best_threshold(y[b], p)
+    records.append(
+        dict(
+            name="reference",
+            view="raw",
+            params=reference.params,
+            rounds=len(reference.trees),
+            threshold=t,
+            tune=metrics(y[b], p >= t),
+        )
+    )
+    predictions["reference"] = p
+    for name, view_key, overrides in CONFIGS:
+        record_path = out / "results" / f"{name}.json"
+        model_path = out / "models" / f"{name}.json"
+        view = views[view_key]
+        if record_path.exists() and model_path.exists():
+            rec, model = load_cached_trial(record_path, model_path)
+            print("Resume " + name, flush=True)
+        else:
+            print("Training " + name + " features=" + str(len(view.names)), flush=True)
+            tick = time.time()
+            params = dict(rounds=300, depth=3, seed=2026) | overrides
+            model = HistogramBoost(**params).fit(
+                view.transform(x[a], names),
+                y[a],
+                view.names,
+                validation=(view.transform(x[b], names), y[b]),
+                patience=60,
+            )
+            model.save(model_path)
+            p = model.predict(view.transform(x[b], names))
+            t, f = best_threshold(y[b], p)
+            rec = dict(
+                name=name,
+                view=view_key,
+                params=model.params,
+                rounds=len(model.trees),
+                threshold=t,
+                tune=metrics(y[b], p >= t),
+                seconds=time.time() - tick,
+                model_sha256=sha256(model_path),
+            )
+            record_path.write_text(json.dumps(rec, indent=2) + "\n")
+        p = model.predict(view.transform(x[b], names))
+        # Never trust cached scalar scores when selecting the next model.
+        rec["threshold"], _ = best_threshold(y[b], p)
+        rec["tune"] = metrics(y[b], p >= rec["threshold"])
+        predictions[name] = p
+        records.append(rec)
+        print(json.dumps(rec), flush=True)
+        del model
+        gc.collect()
+    # Predeclared ensembles of the best 2 and 3 single models (equal weights).
+    ranked = sorted(records, key=lambda z: z["tune"]["f1"], reverse=True)
+    candidates = [
+        dict(
+            name=r["name"],
+            members=[r["name"]],
+            threshold=r["threshold"],
+            tune=r["tune"],
+        )
+        for r in records
+    ]
+    for count in [2, 3]:
+        members = [r["name"] for r in ranked[:count]]
+        p = np.mean([predictions[n] for n in members], axis=0)
+        t, f = best_threshold(y[b], p)
+        candidates.append(
+            dict(
+                name=f"ensemble{count}",
+                members=members,
+                threshold=t,
+                tune=metrics(y[b], p >= t),
+            )
+        )
+    selected = max(candidates, key=lambda z: z["tune"]["f1"])
+    # This on-disk freeze occurs before accessing any new holdout predictions.
+    (out / "results/selection.json").write_text(json.dumps(selected, indent=2) + "\n")
+    print("FROZEN " + json.dumps(selected), flush=True)
+    holdout = {}
+    for rec in records:
+        model = HistogramBoost.load(out / "models" / f"{rec['name']}.json")
+        holdout[rec["name"]] = model.predict(views[rec["view"]].transform(x[c], names))
+        rec["holdout"] = metrics(y[c], holdout[rec["name"]] >= rec["threshold"])
+    for rec in candidates:
+        p = np.mean([holdout[n] for n in rec["members"]], axis=0)
+        rec["holdout"] = metrics(y[c], p >= rec["threshold"])
+    byname = {r["name"]: r for r in records}
+    test_ids, xt, test_names = load_features(args.data_dir / "x_test.csv")
+    if test_names != names or set(ids) & set(test_ids):
+        raise ValueError("Invalid test schema or IDs")
+    members = []
+    testprob = np.zeros(len(xt))
+    total = len(selected["members"])
+    for name in selected["members"]:
+        rec = byname[name]
+        view = views[rec["view"]]
+        print("Full refit " + name, flush=True)
+        model = HistogramBoost(**(rec["params"] | {"rounds": rec["rounds"]})).fit(
+            view.transform(x, names), y, view.names
+        )
+        fn = f"final_{name}.json"
+        model.save(out / "models" / fn)
+        testprob += model.predict(view.transform(xt, names)) / total
+        members.append(
+            dict(
+                model=fn,
+                model_sha256=sha256(out / "models" / fn),
+                view=view.to_dict(),
+                weight=1 / total,
+            )
+        )
+        del model
+        gc.collect()
+    write_submission(
+        test_ids,
+        np.where(testprob >= selected["threshold"], 1, -1),
+        out / "submission.csv",
+    )
+    np.savez_compressed(
+        out / "results/validation_predictions.npz",
+        y_tune=y[b],
+        y_holdout=y[c],
+        **{k + "_tune": v for k, v in predictions.items()},
+        **{k + "_holdout": v for k, v in holdout.items()},
+    )
+    np.save(out / "results/test_probabilities.npy", testprob)
+    meta = dict(
+        input_names=names,
+        data_sha256=datahash,
+        threshold=selected["threshold"],
+        members=members,
+        submission_sha256=sha256(out / "submission.csv"),
+        selection=selected["name"],
+    )
+    (out / "models/metadata.json").write_text(json.dumps(meta, indent=2) + "\n")
+    result = dict(
+        trials=records,
+        candidates=candidates,
+        selected=selected,
+        seconds=time.time() - started,
+        submission_rows=len(testprob),
+        positive=int((testprob >= selected["threshold"]).sum()),
+        holdout_qualification="Reused internal development holdout, not an untouched external test",
+        online_score=None,
+    )
+    (out / "results/metrics.json").write_text(json.dumps(result, indent=2) + "\n")
+    print("FINISHED " + json.dumps(selected), flush=True)
+
+
+if __name__ == "__main__":
+    main()

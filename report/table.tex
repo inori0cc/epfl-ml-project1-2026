@@ -1,0 +1,21 @@
+\begin{table}[h]
+\centering\small
+\begin{tabular}{lrrrr}
+\toprule
+Configuration & Tune F1 & Holdout F1 & Recall & Accuracy\\
+\midrule
+Original reference & 0.4483 & 0.4446 & 0.5534 & 0.8779\\
+64 bins & 0.4481 & 0.4408 & 0.5337 & 0.8804\\
+128 bins & 0.4485 & 0.4425 & 0.5377 & 0.8804\\
+Depth 4 & 0.4487 & 0.4418 & 0.5418 & 0.8791\\
+Column sampling 0.7 & 0.4479 & 0.4366 & 0.4935 & 0.8875\\
+Learning rate 0.05 & 0.4487 & 0.4449 & 0.5596 & 0.8767\\
+Top 80 features & 0.4459 & 0.4437 & 0.5658 & 0.8747\\
+Top 80 + one-hot & 0.4474 & 0.4426 & 0.5627 & 0.8749\\
+Top 80, depth 4 & 0.4454 & 0.4466 & 0.5603 & 0.8774\\
+\textbf{Best-two average} & 0.4494 & 0.4445 & 0.5584 & 0.8767\\
+Best-three average & 0.4488 & 0.4447 & 0.5558 & 0.8774\\
+\bottomrule
+\end{tabular}
+\caption{All trials. Bold marks the choice made on tuning data before holdout scoring.}
+\end{table}

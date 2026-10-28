@@ -1,0 +1,13 @@
+{
+  "submission_id": 338129,
+  "f1": 0.452,
+  "accuracy": 0.878,
+  "score_precision": "three decimals as displayed and reported by user",
+  "source": "User-reported AIcrowd evaluation and submission ID in this conversation",
+  "independently_verified_on_platform": false,
+  "recorded_on": "2026-10-28",
+  "associated_csv_sha256": "a09d918b91f46e8988335ecb5754346c9499ae38fcfb713c91c4ce98af96d3f5",
+  "csv_association": "Latest delivered submission.csv, based on conversation context",
+  "model_selection_used_online_score": false,
+  "original_baseline_online_score": null
+}

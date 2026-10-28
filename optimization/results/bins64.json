@@ -1,0 +1,29 @@
+{
+  "name": "bins64",
+  "view": "raw",
+  "params": {
+    "rounds": 300,
+    "depth": 3,
+    "learning_rate": 0.1,
+    "bins": 64,
+    "min_child_weight": 20.0,
+    "reg_lambda": 10.0,
+    "colsample": 0.35,
+    "subsample": 0.7,
+    "pos_weight": 1.0,
+    "seed": 2026
+  },
+  "rounds": 240,
+  "threshold": 0.21829187015711432,
+  "tune": {
+    "f1": 0.4481084939329051,
+    "precision": 0.3821059038344492,
+    "recall": 0.5416738567730802,
+    "accuracy": 0.8821826382434059,
+    "tp": 3139,
+    "fp": 5076,
+    "fn": 2656,
+    "tn": 54756
+  },
+  "seconds": 104.36843395233154
+}
