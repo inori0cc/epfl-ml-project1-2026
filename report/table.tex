@@ -1,5 +1,6 @@
 \begin{table}[h]
 \centering\small
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{lrrrr}
 \toprule
 Configuration & Tune F1 & Holdout F1 & Recall & Accuracy\\
@@ -16,6 +17,6 @@ Top 80, depth 4 & 0.4454 & 0.4466 & 0.5603 & 0.8774\\
 \textbf{Best-two average} & 0.4494 & 0.4445 & 0.5584 & 0.8767\\
 Best-three average & 0.4488 & 0.4447 & 0.5558 & 0.8774\\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \caption{All trials. Bold marks the choice made on tuning data before holdout scoring.}
 \end{table}

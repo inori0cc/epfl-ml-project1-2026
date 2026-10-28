@@ -1,0 +1,3 @@
+Official EPFL template: https://github.com/epfml/ML_course/tree/main/projects/project1/latex-example-paper
+Source commit: b2f17ab998e6d9b91061eeeb8484a61bf2f75320
+IEEEtran.cls and IEEEtran.bst are unchanged. main.tex uses the official document-class options without margin or font-size overrides.
